@@ -232,7 +232,6 @@ def index():
 
             site_df.to_csv(output_path, sep=';', index=False, encoding='cp1251', decimal=',')
 
-            # Передаем статистику и ID для скачивания в URL
             return redirect(url_for('index', 
                                    download=job_id, 
                                    vendor=vendor,
@@ -258,7 +257,6 @@ def download_result(job_id):
             with open(output_path, 'rb') as f:
                 file_data = f.read()
             
-            # Удаляем файл сразу после чтения в память
             os.remove(output_path)
             
             return send_file(
@@ -270,7 +268,6 @@ def download_result(job_id):
         except Exception as e:
             print(f"ERROR при скачивании: {e}", flush=True)
     
-    # Тихий редирект, если файл уже удален или не найден
     return redirect(url_for('index'))
 
 if __name__ == '__main__':
