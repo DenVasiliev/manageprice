@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import re
 import uuid
+import io
 from werkzeug.utils import secure_filename
 import traceback
 
@@ -170,7 +171,6 @@ def process_igrushka(site_df, vendor_path, deposit_col_idx):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        # Регистрируем очистку СРАЗУ, до сохранения файлов
         files_to_cleanup = []
         
         @after_this_request
@@ -179,9 +179,8 @@ def index():
                 try:
                     if os.path.exists(file_path):
                         os.remove(file_path)
-                        print(f"DEBUG: Удален файл: {file_path}", flush=True)
-                except Exception as e:
-                    print(f"ERROR: Не удалось удалить {file_path}: {e}", flush=True)
+                except Exception:
+                    pass
             return response
         
         vendor = request.form.get('vendor')
@@ -209,14 +208,12 @@ def index():
         vendor_path = os.path.join(app.config['UPLOAD_FOLDER'], f'{job_id}_{vendor_fn}')
         output_path = os.path.join(app.config['UPLOAD_FOLDER'], f'{job_id}_result.csv')
 
-        # Добавляем пути в список для очистки
-        files_to_cleanup.extend([site_path, vendor_path, output_path])
+        files_to_cleanup.extend([site_path, vendor_path])
 
         site_file.save(site_path)
         vendor_file.save(vendor_path)
 
         try:
-            print(f"DEBUG: Читаю CSV: {site_path}", flush=True)
             site_df = pd.read_csv(site_path, sep=';', encoding='cp1251', engine='python')
             
             for col in ['Закупочная цена', 'Остаток', 'Цена продажи, без учёта скидок']:
@@ -235,15 +232,11 @@ def index():
 
             site_df.to_csv(output_path, sep=';', index=False, encoding='cp1251', decimal=',')
 
-            flash(f'✅ Успешно! Обновлено: {stats["updated"]} | Обнулено: {stats["zeroed"]}', 'success')
-            print(f"DEBUG: Файл создан: {output_path}", flush=True)
-            
-            return send_file(
-                output_path,
-                as_attachment=True,
-                download_name=f'FINAL_UPDATE_{vendor}.csv',
-                mimetype='text/csv'
-            )
+            return redirect(url_for('index', 
+                                   download=job_id, 
+                                   vendor=vendor,
+                                   updated=stats['updated'],
+                                   zeroed=stats['zeroed']))
 
         except Exception as e:
             error_msg = f'Ошибка обработки: {str(e)}'
@@ -253,6 +246,31 @@ def index():
             return redirect(url_for('index'))
 
     return render_template('index.html')
+
+@app.route('/download/<job_id>')
+def download_result(job_id):
+    vendor = request.args.get('vendor', 'unknown')
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], f'{job_id}_result.csv')
+    
+    if os.path.exists(output_path):
+        try:
+            with open(output_path, 'rb') as f:
+                file_data = f.read()
+            
+            os.remove(output_path)
+            
+            return send_file(
+                io.BytesIO(file_data),
+                as_attachment=True,
+                download_name=f'FINAL_UPDATE_{vendor}.csv',
+                mimetype='text/csv'
+            )
+        except Exception as e:
+            print(f"ERROR при скачивании: {e}", flush=True)
+            return redirect(url_for('index'))
+    else:
+        # Просто редиректим без flash-сообщения
+        return redirect(url_for('index'))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
